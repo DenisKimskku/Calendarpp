@@ -1,0 +1,80 @@
+# Xcode
+build/
+*.xcarchive
+*.xcuserdata
+*.xcuserdatad
+DerivedData/
+.DS_Store
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# Release artifacts
+*.zip
+*.dmg
+*.pkg
+*.app.zip
+
+# Homebrew
+*.bottle.tar.gz
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Personal files and checklists
+*_CHECKLIST.md
+*CHECKLIST.md
+CHANGES_SUMMARY.md
+QUICK_START*.md
+notes.md
+NOTES.md
+todo.md
+TODO.md
+
+# Personal information
+*.credentials
+*.secrets
+.env
+.env.local
+secrets/
+credentials/
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Export options (may contain team IDs)
+exportOptions.plist

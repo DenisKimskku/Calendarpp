@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- URL Scheme Configuration for Automation -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>CalendarPlusPlusURL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>calendarplusplus</string>
+			</array>
+		</dict>
+	</array>
+	
+	<!-- Calendar & Reminder Permissions -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>calendar++ needs access to your calendars to show and manage your events.</string>
+	
+	<key>NSRemindersUsageDescription</key>
+	<string>calendar++ needs access to your reminders to show them in your unified timeline.</string>
+	
+	<!-- App Groups for Widget/Extension Support -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.den-kim.calendarplusplus</string>
+	</array>
+	
+	<!-- Bundle Identifier -->
+	<key>CFBundleIdentifier</key>
+	<string>com.den-kim.calendarplusplus</string>
+	
+	<!-- App Name -->
+	<key>CFBundleName</key>
+	<string>calendar++</string>
+	
+	<!-- Display Name -->
+	<key>CFBundleDisplayName</key>
+	<string>calendar++</string>
+	
+	<!-- Menu Bar Extra Visibility -->
+	<key>LSUIElement</key>
+	<false/>
+	
+	<!-- Application Category -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	
+	<!-- Minimum macOS Version -->
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	
+	<!-- Support for high resolution displays -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	
+	<!-- Principal Class -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>
