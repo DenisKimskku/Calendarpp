@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @EnvironmentObject var settings: SettingsViewModel
+    @EnvironmentObject var googleCalendar: GoogleCalendarManager
 
     var body: some View {
         TabView {
@@ -14,9 +15,14 @@ struct PreferencesView: View {
                 .tabItem {
                     Label("Menu Bar", systemImage: "menubar.rectangle")
                 }
+
+            googleCalendarTab
+                .tabItem {
+                    Label("Google Calendar", systemImage: "cloud")
+                }
         }
         .padding(16)
-        .frame(width: 420, height: 260)
+        .frame(width: 500, height: 400)
     }
 
     private var generalTab: some View {
@@ -41,5 +47,10 @@ struct PreferencesView: View {
                 Toggle("Show next-event indicator dot", isOn: $settings.showNextEventDot)
             }
         }
+    }
+
+    private var googleCalendarTab: some View {
+        GoogleCalendarSettingsView()
+            .environmentObject(googleCalendar)
     }
 }

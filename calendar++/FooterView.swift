@@ -15,7 +15,7 @@ struct FooterView: View {
             Button {
                 openPreferences()
             } label: {
-                Label("Preferences", systemImage: "gearshape")
+                Label("Settings", systemImage: "gearshape")
             }
 
             Button(role: .destructive) {
@@ -40,6 +40,6 @@ struct FooterView: View {
     }
 
     private func openPreferences() {
-        NSApp.sendAction(#selector(NSApplication.showPreferencesWindow(_:)), to: nil, from: nil)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }

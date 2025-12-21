@@ -9,13 +9,26 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
+        VStack(spacing: 16) {
+            Image(systemName: "calendar")
                 .imageScale(.large)
+                .font(.system(size: 48))
                 .foregroundStyle(.tint)
-            Text("Hello, world!")
+
+            Text("Calendar++")
+                .font(.title)
+                .fontWeight(.semibold)
+
+            Text("Your menu bar calendar is running!")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Text("Look for the calendar icon in your menu bar.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .padding()
+        .frame(width: 400, height: 300)
     }
 }
 

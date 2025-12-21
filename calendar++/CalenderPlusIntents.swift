@@ -181,7 +181,7 @@ struct CalenderPlusShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: GetNextEventIntent(),
             phrases: [
-                "What's my next event",
+                "What's my next event in \(.applicationName)",
                 "Show next meeting in \(.applicationName)"
             ],
             shortTitle: "Next Event",
@@ -192,7 +192,7 @@ struct CalenderPlusShortcuts: AppShortcutsProvider {
             intent: StartDeepWorkIntent(),
             phrases: [
                 "Start deep work in \(.applicationName)",
-                "Begin focus session"
+                "Begin focus session in \(.applicationName)"
             ],
             shortTitle: "Deep Work",
             systemImageName: "brain.head.profile"
@@ -201,8 +201,8 @@ struct CalenderPlusShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: SetCalendarFocusIntent(),
             phrases: [
-                "Switch to work calendar",
-                "Show personal calendar"
+                "Switch to work calendar in \(.applicationName)",
+                "Show personal calendar in \(.applicationName)"
             ],
             shortTitle: "Switch Calendar",
             systemImageName: "calendar.badge.clock"

@@ -4,6 +4,7 @@ struct MenuBarRootView: View {
     @EnvironmentObject var eventKit: EventKitManager
     @EnvironmentObject var settings: SettingsViewModel
     @EnvironmentObject var calendarVM: CalendarViewModel
+    @EnvironmentObject var googleCalendar: GoogleCalendarManager
 
     var body: some View {
         ZStack {
@@ -18,9 +19,14 @@ struct MenuBarRootView: View {
             }
             .padding(12)
         }
+        .frame(width: 320, height: 400)
         .onAppear {
             eventKit.requestAccessIfNeeded()
             eventKit.reloadAllEvents()
+            googleCalendar.refreshEventsIfNeeded()
+        }
+        .onChange(of: googleCalendar.googleEvents) { newEvents in
+            eventKit.setGoogleEvents(newEvents)
         }
     }
 }

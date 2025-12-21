@@ -103,8 +103,4 @@ struct EventContextCardView: View {
     }
 }
 
-extension Color {
-    static func fromNSColor(_ nsColor: NSColor) -> Color {
-        return Color(nsColor.cgColor)
-    }
-}
+

@@ -1,4 +1,6 @@
 import Foundation
+import Combine
+import Combine
 
 enum EventEnergy: String, CaseIterable, Identifiable {
     case low

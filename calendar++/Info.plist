@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Bundle Identifier -->
+	<key>CFBundleIdentifier</key>
+	<string>den-kim.calendar--</string>
+
 	<!-- URL Scheme Configuration for Automation -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -28,9 +32,9 @@
 		<string>group.com.yourcompany.calenderplus</string>
 	</array>
 	
-	<!-- Menu Bar Extra Visibility -->
+	<!-- Menu Bar Extra Visibility - true means menu bar only, no Dock icon -->
 	<key>LSUIElement</key>
-	<false/>
+	<true/>
 	
 	<!-- Application Category -->
 	<key>LSApplicationCategoryType</key>

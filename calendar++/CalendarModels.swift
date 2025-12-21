@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-struct EventSummary: Identifiable {
+struct EventSummary: Identifiable, Equatable {
     let id: String                     // EKEvent.eventIdentifier
     let title: String
     let startDate: Date
@@ -10,6 +10,10 @@ struct EventSummary: Identifiable {
     let calendarName: String
     let calendarColor: NSColor
     let location: String?
+
+    static func == (lhs: EventSummary, rhs: EventSummary) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 struct DayEvents: Identifiable {

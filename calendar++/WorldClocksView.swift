@@ -8,21 +8,24 @@ struct WorldClocksView: View {
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        if settings.worldClockTimeZones.isEmpty { 
+        let timeZoneIDs = settings.worldClockTimeZones.split(separator: ",").map(String.init)
+        if timeZoneIDs.isEmpty {
             EmptyView()
         } else {
             HStack(spacing: 8) {
-                ForEach(settings.worldClockTimeZones, id: \.identifier) { tz in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(cityName(for: tz))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(timeString(for: tz))
-                            .font(.caption2).bold()
+                ForEach(timeZoneIDs, id: \.self) { tzID in
+                    if let tz = TimeZone(identifier: tzID) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cityName(for: tz))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(timeString(for: tz))
+                                .font(.caption2).bold()
+                        }
+                        .padding(6)
+                        .background(Color.accentColor.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .padding(6)
-                    .background(Color.accentColor.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 Spacer()
             }

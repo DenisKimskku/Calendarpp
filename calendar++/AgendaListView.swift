@@ -90,6 +90,6 @@ struct AgendaListView: View {
 // Helper to convert NSColor to SwiftUI Color
 extension Color {
     init(_ nsColor: NSColor) {
-        self.init(nsColor.cgColor ?? NSColor.systemGray.cgColor!)
+        self.init(cgColor: nsColor.cgColor)
     }
 }

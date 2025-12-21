@@ -7,6 +7,7 @@ final class EventKitManager: ObservableObject {
     private let eventStore = EKEventStore()
 
     @Published var eventsByDay: [Date: [EventSummary]] = [:]
+    @Published var googleEventsByDay: [Date: [EventSummary]] = [:]
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -37,7 +38,11 @@ final class EventKitManager: ObservableObject {
     }
 
     func reloadAllEvents(range: DateInterval? = nil) {
-        guard authorizationStatus == .authorized || authorizationStatus == .fullAccess else { return }
+        var isAuthorized = (authorizationStatus == .authorized)
+        if #available(macOS 14.0, *) {
+            isAuthorized = isAuthorized || (authorizationStatus == .fullAccess)
+        }
+        guard isAuthorized else { return }
 
         let calendar = Calendar.current
         let now = Date()
@@ -88,6 +93,112 @@ final class EventKitManager: ObservableObject {
     func events(on date: Date) -> [EventSummary] {
         let calendar = Calendar.current
         let key = calendar.startOfDay(for: date)
-        return eventsByDay[key] ?? []
+
+        // Merge local and Google events
+        let localEvents = eventsByDay[key] ?? []
+        let googleEvents = googleEventsByDay[key] ?? []
+
+        return (localEvents + googleEvents).sorted { $0.startDate < $1.startDate }
+    }
+
+    func setGoogleEvents(_ events: [EventSummary]) {
+        let calendar = Calendar.current
+
+        // Group Google events by day
+        let grouped = Dictionary(grouping: events) { event -> Date in
+            calendar.startOfDay(for: event.startDate)
+        }
+
+        DispatchQueue.main.async {
+            self.googleEventsByDay = grouped
+        }
+    }
+
+    func totalBusyMinutes(on date: Date) -> Int {
+        let todayEvents = events(on: date)
+        let now = Date()
+        let calendar = Calendar.current
+        let isToday = calendar.isDate(date, inSameDayAs: now)
+
+        var totalMinutes = 0
+        for event in todayEvents {
+            guard !event.isAllDay else { continue }
+
+            let start: Date
+            if isToday && event.startDate < now {
+                start = now
+            } else {
+                start = event.startDate
+            }
+
+            let end = event.endDate
+            guard end > start else { continue }
+
+            let duration = end.timeIntervalSince(start) / 60.0
+            totalMinutes += Int(duration)
+        }
+        return totalMinutes
+    }
+
+    func nextEvent() -> EventSummary? {
+        let now = Date()
+        let calendar = Calendar.current
+
+        // Get events from today and tomorrow
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let dayAfter = calendar.date(byAdding: .day, value: 2, to: today)!
+
+        var upcomingEvents: [EventSummary] = []
+        upcomingEvents.append(contentsOf: events(on: today))
+        upcomingEvents.append(contentsOf: events(on: tomorrow))
+        upcomingEvents.append(contentsOf: events(on: dayAfter))
+
+        return upcomingEvents
+            .filter { $0.startDate > now }
+            .sorted { $0.startDate < $1.startDate }
+            .first
+    }
+
+    func simpleInsight() -> String? {
+        let todayEvents = events(on: Date())
+        guard !todayEvents.isEmpty else { return nil }
+
+        let busyMinutes = totalBusyMinutes(on: Date())
+        let hours = busyMinutes / 60
+        let minutes = busyMinutes % 60
+
+        if hours > 0 && minutes > 0 {
+            return "\(hours)h \(minutes)m busy today"
+        } else if hours > 0 {
+            return "\(hours)h busy today"
+        } else if minutes > 0 {
+            return "\(minutes)m busy today"
+        }
+
+        return "\(todayEvents.count) events today"
+    }
+
+    func createEvent(title: String, startDate: Date, endDate: Date, location: String?, notes: String?, calendar: EKCalendar?) {
+        var isAuthorized = (authorizationStatus == .authorized)
+        if #available(macOS 14.0, *) {
+            isAuthorized = isAuthorized || (authorizationStatus == .fullAccess)
+        }
+        guard isAuthorized else { return }
+
+        let event = EKEvent(eventStore: eventStore)
+        event.title = title
+        event.startDate = startDate
+        event.endDate = endDate
+        event.location = location
+        event.notes = notes
+        event.calendar = calendar ?? eventStore.defaultCalendarForNewEvents
+
+        do {
+            try eventStore.save(event, span: .thisEvent)
+            reloadAllEvents()
+        } catch {
+            print("Error creating event: \(error)")
+        }
     }
 }

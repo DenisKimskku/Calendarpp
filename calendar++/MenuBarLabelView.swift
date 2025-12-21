@@ -1,4 +1,6 @@
 import SwiftUI
+import Combine
+import Combine
 
 struct MenuBarLabelView: View {
     @EnvironmentObject var eventKit: EventKitManager
@@ -83,7 +85,7 @@ struct BusyBarView: View {
 
             Capsule()
                 .frame(width: 22 * fraction, height: 6)
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
         }
     }
 }

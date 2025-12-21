@@ -48,7 +48,11 @@ final class ReminderManager: ObservableObject {
     }
 
     func reloadReminders(range: DateInterval? = nil) {
-        guard authorizationStatus == .fullAccess || authorizationStatus == .authorized else { return }
+        var isAuthorized = (authorizationStatus == .authorized)
+        if #available(macOS 14.0, *) {
+            isAuthorized = isAuthorized || (authorizationStatus == .fullAccess)
+        }
+        guard isAuthorized else { return }
 
         let calendar = Calendar.current
         let now = Date()

@@ -86,16 +86,12 @@ struct QuickAddEventView: View {
             title: trimmedTitle,
             startDate: start,
             endDate: end,
-            location: location.isEmpty ? nil : location
-        ) { result in
-            isSaving = false
-            switch result {
-            case .success:
-                title = ""
-                location = ""
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-            }
-        }
+            location: location.isEmpty ? nil : location,
+            notes: nil,
+            calendar: nil
+        )
+        isSaving = false
+        title = ""
+        location = ""
     }
 }

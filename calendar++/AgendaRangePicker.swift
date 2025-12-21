@@ -13,7 +13,7 @@ struct AgendaRangePicker: View {
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(settings.agendaRange == range ? .thinMaterial : .clear)
+                        .background(settings.agendaRange == range ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
