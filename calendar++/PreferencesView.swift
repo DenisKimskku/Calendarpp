@@ -21,8 +21,8 @@ struct PreferencesView: View {
                     Label("Google Calendar", systemImage: "cloud")
                 }
         }
-        .padding(16)
-        .frame(width: 500, height: 400)
+        .padding(20)
+        .frame(width: 500, height: 450)
     }
 
     private var generalTab: some View {

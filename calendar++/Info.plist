@@ -6,19 +6,6 @@
 	<key>CFBundleIdentifier</key>
 	<string>den-kim.calendar--</string>
 
-	<!-- URL Scheme Configuration for Automation -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>CalenderPlusURL</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>calenderplus</string>
-			</array>
-		</dict>
-	</array>
-	
 	<!-- Calendar & Reminder Permissions -->
 	<key>NSCalendarsUsageDescription</key>
 	<string>calendar++ needs access to your calendars to show and manage your events.</string>

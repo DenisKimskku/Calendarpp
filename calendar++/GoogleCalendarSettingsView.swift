@@ -6,22 +6,69 @@ struct GoogleCalendarSettingsView: View {
     var body: some View {
         Form {
             Section {
-                if googleCalendar.isAuthenticated {
+                if googleCalendar.isAuthenticating {
+                    // Authenticating state
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Signing in to Google Calendar...")
+                            .font(.subheadline)
+                    }
+                    .padding(.vertical, 8)
+
+                    if let error = googleCalendar.errorMessage {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        .padding(.vertical, 4)
+
+                        Button("Try Again") {
+                            googleCalendar.startOAuthFlow()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else if googleCalendar.isAuthenticated {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Connected to Google Calendar")
-                            .font(.subheadline)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Connected to Google Calendar")
+                                .font(.subheadline)
+                            if googleCalendar.isLoading {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .scaleEffect(0.6)
+                                    Text("Loading events...")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Text("\(googleCalendar.googleEvents.count) events synced")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
-
-                    Text("Your Google Calendar events are being synced.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
 
                     Button("Sign Out") {
                         googleCalendar.signOut()
                     }
                     .foregroundColor(.red)
+
+                    if let error = googleCalendar.errorMessage {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                        .padding(.vertical, 4)
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Connect Google Calendar")
@@ -37,31 +84,15 @@ struct GoogleCalendarSettingsView: View {
                         .buttonStyle(.borderedProminent)
 
                         if let error = googleCalendar.errorMessage {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-
-                        Divider()
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
                             .padding(.vertical, 4)
-
-                        Text("Setup Instructions:")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("1. Go to Google Cloud Console")
-                            Text("2. Create a new project or select existing")
-                            Text("3. Enable Google Calendar API")
-                            Text("4. Create OAuth 2.0 credentials")
-                            Text("5. Add 'calenderplus://oauth2callback' as redirect URI")
-                            Text("6. Update CLIENT_ID in GoogleCalendarManager.swift")
                         }
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-
-                        Link("Open Google Cloud Console", destination: URL(string: "https://console.cloud.google.com")!)
-                            .font(.caption)
                     }
                 }
             }

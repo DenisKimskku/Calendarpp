@@ -13,6 +13,8 @@ struct calendar__App: App {
     @StateObject private var settings = SettingsViewModel()
     @StateObject private var calendarVM = CalendarViewModel()
     @StateObject private var googleCalendar = GoogleCalendarManager()
+    @StateObject private var templatesManager = EventTemplatesManager()
+    @StateObject private var filterManager = CalendarFilterManager()
 
     var body: some Scene {
         MenuBarExtra("calendar++", systemImage: "calendar") {
@@ -21,6 +23,8 @@ struct calendar__App: App {
                 .environmentObject(settings)
                 .environmentObject(calendarVM)
                 .environmentObject(googleCalendar)
+                .environmentObject(templatesManager)
+                .environmentObject(filterManager)
         }
         .menuBarExtraStyle(.window)
 
@@ -28,24 +32,6 @@ struct calendar__App: App {
             PreferencesView()
                 .environmentObject(settings)
                 .environmentObject(googleCalendar)
-        }
-    }
-}
-
-// Handle OAuth callback URL
-extension calendar__App {
-    func handleURL(_ url: URL) {
-        googleCalendar.handleOAuthCallback(url: url)
-    }
-}
-
-// Add NSApplicationDelegate to handle URL scheme
-class AppDelegate: NSObject, NSApplicationDelegate {
-    var app: calendar__App?
-
-    func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first {
-            app?.handleURL(url)
         }
     }
 }

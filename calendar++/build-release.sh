@@ -26,8 +26,7 @@ echo "🔨 Building archive..."
 xcodebuild archive \
   -scheme "$SCHEME" \
   -archivePath "$ARCHIVE_PATH" \
-  -configuration Release \
-  | xcpretty || true
+  -configuration Release
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
   echo "❌ Archive failed!"
@@ -42,8 +41,7 @@ mkdir -p "$EXPORT_PATH"
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
-  -exportOptionsPlist exportOptions.plist \
-  | xcpretty || true
+  -exportOptionsPlist calendar++/exportOptions.plist
 
 if [ ! -d "$EXPORT_PATH/calendar++.app" ]; then
   echo "❌ Export failed!"
@@ -96,18 +94,16 @@ echo "2. Create git tag:"
 echo "   git tag -a v$VERSION -m \"Release version $VERSION\""
 echo "   git push origin v$VERSION"
 echo ""
-echo "3. Create GitHub Release:"
-echo "   - Go to https://github.com/den-kim/calendarplusplus/releases/new"
-echo "   - Choose tag: v$VERSION"
-echo "   - Upload: $BUILD_DIR/$ZIP_NAME"
-echo "   - Add release notes"
+echo "3. Upload to https://deniskim1.com/releases/:"
+echo "   - Upload $BUILD_DIR/$ZIP_NAME to your website"
+echo "   - Ensure it's accessible at: https://deniskim1.com/releases/$ZIP_NAME"
 echo ""
 echo "4. Update Homebrew formula in homebrew-tap:"
 echo "   version \"$VERSION\""
 echo "   sha256 \"$SHA256\""
 echo ""
 echo "5. Test Homebrew installation:"
-echo "   brew tap den-kim/tap"
+echo "   brew tap DenisKimskku/tap"
 echo "   brew install --cask calendar-plus-plus"
 echo ""
 echo "6. Test URL scheme:"
@@ -125,11 +121,11 @@ Homebrew Formula Update:
   version "$VERSION"
   sha256 "$SHA256"
 
-GitHub Release URL:
-  https://github.com/den-kim/calendarplusplus/releases/download/v$VERSION/$ZIP_NAME
+Release URL:
+  https://deniskim1.com/releases/$ZIP_NAME
 
 Test Installation:
-  brew tap den-kim/tap
+  brew tap DenisKimskku/tap
   brew install --cask calendar-plus-plus
 
 Test URL Scheme:

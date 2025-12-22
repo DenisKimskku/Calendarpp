@@ -201,4 +201,27 @@ final class EventKitManager: ObservableObject {
             print("Error creating event: \(error)")
         }
     }
+
+    func deleteEvent(withId eventId: String) {
+        var isAuthorized = (authorizationStatus == .authorized)
+        if #available(macOS 14.0, *) {
+            isAuthorized = isAuthorized || (authorizationStatus == .fullAccess)
+        }
+        guard isAuthorized else { return }
+
+        // Extract the actual EventKit identifier (remove "google-" prefix if present)
+        let ekEventId = eventId.replacingOccurrences(of: "google-", with: "")
+
+        // Try to find and delete the event
+        if let event = eventStore.event(withIdentifier: ekEventId) {
+            do {
+                try eventStore.remove(event, span: .thisEvent)
+                reloadAllEvents()
+            } catch {
+                print("Error deleting event: \(error)")
+            }
+        } else {
+            print("Event not found with ID: \(ekEventId)")
+        }
+    }
 }

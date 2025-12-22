@@ -33,3 +33,4 @@ Package.resolved
 
 # Release directory (keeping it for now but could be excluded)
 # release-v*/
+calendar++/GoogleOAuthConfig.plist
