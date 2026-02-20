@@ -1,0 +1,20 @@
+name: release-gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  macos-release-gate:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run release gate
+        env:
+          SMOKE_SIGNING_MODE: unsigned
+        run: ./scripts/release_gate.sh

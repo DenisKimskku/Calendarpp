@@ -262,12 +262,42 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 262W684LXB;
 				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "calendar++/Info.plist";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					ENABLE_HARDENED_RUNTIME = YES;
+					ENABLE_PREVIEWS = YES;
+					ENABLE_USER_SELECTED_FILES = readonly;
+							EXCLUDED_RESOURCE_FILE_NAMES = (
+								"*.md",
+								"*.rb",
+								"*.sh",
+								"*.template",
+							"*.entitlements",
+							"*.yml",
+								".gitignore",
+								LICENSE,
+								"Info.plist",
+								"Info*.plist",
+								"exportOptions.plist",
+								"exportOptions-*.plist",
+								Package.swift,
+							);
+							EXCLUDED_SOURCE_FILE_NAMES = (
+							"*.md",
+							"*.rb",
+							"*.sh",
+							"*.template",
+							"*.entitlements",
+							"*.yml",
+								".gitignore",
+								LICENSE,
+								"Info.plist",
+								"Info*.plist",
+								"exportOptions.plist",
+								"exportOptions-*.plist",
+								Package.swift,
+							);
+						GENERATE_INFOPLIST_FILE = NO;
+						INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
+						INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -296,12 +326,42 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 262W684LXB;
 				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "calendar++/Info.plist";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					ENABLE_HARDENED_RUNTIME = YES;
+					ENABLE_PREVIEWS = YES;
+					ENABLE_USER_SELECTED_FILES = readonly;
+							EXCLUDED_RESOURCE_FILE_NAMES = (
+								"*.md",
+								"*.rb",
+								"*.sh",
+								"*.template",
+							"*.entitlements",
+							"*.yml",
+								".gitignore",
+								LICENSE,
+								"Info.plist",
+								"Info*.plist",
+								"exportOptions.plist",
+								"exportOptions-*.plist",
+								Package.swift,
+							);
+							EXCLUDED_SOURCE_FILE_NAMES = (
+							"*.md",
+							"*.rb",
+							"*.sh",
+							"*.template",
+							"*.entitlements",
+							"*.yml",
+								".gitignore",
+								LICENSE,
+								"Info.plist",
+								"Info*.plist",
+								"exportOptions.plist",
+								"exportOptions-*.plist",
+								Package.swift,
+							);
+						GENERATE_INFOPLIST_FILE = NO;
+						INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
+						INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
