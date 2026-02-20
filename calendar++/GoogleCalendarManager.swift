@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import Network
+import LocalAuthentication
 
 struct GoogleCalendarEvent: Identifiable, Codable {
     let id: String
@@ -62,26 +63,77 @@ final class GoogleCalendarManager: ObservableObject {
 
     private let clientId: String
     private let clientSecret: String
-    private let keychainService = "den-kim.calendar--"
+    private let oauthConfigErrorMessage: String?
+    // Keychain items store an access control list bound to the app's code signature.
+    // During development (especially when using ad-hoc / changing signatures), reading
+    // previously-saved items can trigger repetitive Keychain permission prompts.
+    //
+    // Bump the service namespace to avoid older items that were created under a
+    // different signature/config.
+    private let keychainService: String = {
+        let base = Bundle.main.bundleIdentifier ?? "den-kim.calendar--"
+        return "\(base).google-oauth.v3"
+    }()
     private let accessTokenKey = "google_access_token"
     private let refreshTokenKey = "google_refresh_token"
     private let tokenExpiryKey = "google_token_expiry"
+    private var pendingCodeVerifier: String?
+    private var keychainAccessBlockedForSession = false
 
     private var cancellables = Set<AnyCancellable>()
     private var localServer: NWListener?
     private var redirectUri: String = ""
     private var serverPort: UInt16 = 0
 
+    private enum FetchKind {
+        case baseline
+        case visible
+    }
+
+    private var inFlightFetches: Int = 0
+    private var lastBaselineRange: DateInterval?
+    private var lastVisibleRange: DateInterval?
+    private var baselineEventsById: [String: EventSummary] = [:]
+    private var visibleEventsById: [String: EventSummary] = [:]
+    private var isRefreshingToken = false
+
+    private var isOAuthConfigured: Bool {
+        oauthConfigErrorMessage == nil && !clientId.isEmpty && !clientSecret.isEmpty
+    }
+
+    private struct OAuthConfig {
+        let clientId: String
+        let clientSecret: String
+        let errorMessage: String?
+    }
+
+    private static func loadOAuthConfig() -> OAuthConfig {
+        // Load OAuth credentials from plist bundled with the app.
+        // Missing config should not crash the app; Google sync should simply be disabled.
+        guard let path = Bundle.main.path(forResource: "GoogleOAuthConfig", ofType: "plist"),
+              let config = NSDictionary(contentsOfFile: path),
+              let id = config["clientId"] as? String,
+              let secret = config["clientSecret"] as? String,
+              !id.isEmpty,
+              !secret.isEmpty else {
+            return OAuthConfig(
+                clientId: "",
+                clientSecret: "",
+                errorMessage: "Google Calendar is not configured. Add GoogleOAuthConfig.plist to the app bundle (see GoogleOAuthConfig.plist.template)."
+            )
+        }
+
+        return OAuthConfig(clientId: id, clientSecret: secret, errorMessage: nil)
+    }
+
     init() {
-        // Load OAuth credentials from plist
-        if let path = Bundle.main.path(forResource: "GoogleOAuthConfig", ofType: "plist"),
-           let config = NSDictionary(contentsOfFile: path),
-           let id = config["clientId"] as? String,
-           let secret = config["clientSecret"] as? String {
-            self.clientId = id
-            self.clientSecret = secret
-        } else {
-            fatalError("GoogleOAuthConfig.plist not found or invalid")
+        let config = Self.loadOAuthConfig()
+        self.clientId = config.clientId
+        self.clientSecret = config.clientSecret
+        self.oauthConfigErrorMessage = config.errorMessage
+
+        if let errorMessage = config.errorMessage {
+            self.errorMessage = errorMessage
         }
 
         checkAuthentication()
@@ -90,17 +142,42 @@ final class GoogleCalendarManager: ObservableObject {
     // MARK: - Authentication
 
     func checkAuthentication() {
-        if let _ = getAccessToken() {
+        guard isOAuthConfigured else {
+            isAuthenticated = false
+            return
+        }
+        guard !keychainAccessBlockedForSession else {
+            isAuthenticated = false
+            return
+        }
+
+        // Consider the user authenticated if we can refresh an expired token.
+        // Avoid showing Keychain UI during app startup. If Keychain requires interaction
+        // (locked or ACL mismatch), we'll treat the user as signed out and let them
+        // reconnect from Preferences.
+        if let _ = getFromKeychain(key: accessTokenKey, allowUI: false), !isAccessTokenExpired(allowUI: false) {
             isAuthenticated = true
             refreshEventsIfNeeded()
+        } else if getRefreshToken(allowUI: false) != nil {
+            isAuthenticated = true
+            refreshAccessToken()
         } else {
             isAuthenticated = false
         }
     }
 
     func startOAuthFlow() {
+        guard isOAuthConfigured else {
+            DispatchQueue.main.async {
+                self.errorMessage = self.oauthConfigErrorMessage
+                self.isAuthenticating = false
+            }
+            return
+        }
+
         // Clear any previous errors
         DispatchQueue.main.async {
+            self.keychainAccessBlockedForSession = false
             self.errorMessage = nil
             self.isAuthenticating = true
         }
@@ -109,8 +186,8 @@ final class GoogleCalendarManager: ObservableObject {
         let codeVerifier = generateCodeVerifier()
         let codeChallenge = generateCodeChallenge(from: codeVerifier)
 
-        // Save code verifier for later
-        saveToKeychain(key: "code_verifier", value: codeVerifier)
+        // Keep verifier in-memory for this auth flow to avoid unnecessary keychain prompts.
+        pendingCodeVerifier = codeVerifier
 
         // Start local server first
         startLocalServer { [weak self] port in
@@ -120,7 +197,13 @@ final class GoogleCalendarManager: ObservableObject {
             self.redirectUri = "http://127.0.0.1:\(port)"
 
             // Build OAuth URL with loopback redirect
-            var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
+            guard var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth") else {
+                DispatchQueue.main.async {
+                    self.errorMessage = "Failed to construct Google authentication URL."
+                    self.isAuthenticating = false
+                }
+                return
+            }
             components.queryItems = [
                 URLQueryItem(name: "client_id", value: self.clientId),
                 URLQueryItem(name: "redirect_uri", value: self.redirectUri),
@@ -217,7 +300,7 @@ final class GoogleCalendarManager: ObservableObject {
             return
         }
 
-        guard let codeVerifier = getFromKeychain(key: "code_verifier") else {
+        guard let codeVerifier = pendingCodeVerifier else {
             sendHTMLResponse(to: connection, html: "<h1>Error</h1><p>Authentication failed</p>")
             DispatchQueue.main.async {
                 self.errorMessage = "Authentication failed: Security verification error. Please try signing in again."
@@ -226,6 +309,7 @@ final class GoogleCalendarManager: ObservableObject {
             stopLocalServer()
             return
         }
+        pendingCodeVerifier = nil
 
         // Send success response to browser
         sendHTMLResponse(to: connection, html: """
@@ -257,7 +341,7 @@ final class GoogleCalendarManager: ObservableObject {
             \(html)
             """
 
-        let data = response.data(using: .utf8)!
+        let data = Data(response.utf8)
         connection.send(content: data, completion: .contentProcessed { _ in
             connection.cancel()
         })
@@ -269,23 +353,27 @@ final class GoogleCalendarManager: ObservableObject {
     }
 
     private func exchangeCodeForToken(code: String, codeVerifier: String) {
-        // Write debug info to file
-        let debugInfo = """
-        === Google OAuth Token Exchange ===
-        Timestamp: \(Date())
-        Redirect URI: \(redirectUri)
-        Client ID: \(clientId)
-        Code: \(code)
-        Code verifier: \(codeVerifier)
-
-        """
-
-        if let homeDir = FileManager.default.homeDirectoryForCurrentUser.path as String? {
-            let logPath = "\(homeDir)/Desktop/calendar-oauth-debug.log"
-            try? debugInfo.write(toFile: logPath, atomically: true, encoding: .utf8)
+        guard isOAuthConfigured else {
+            DispatchQueue.main.async {
+                self.errorMessage = self.oauthConfigErrorMessage
+                self.isAuthenticating = false
+            }
+            return
         }
 
-        var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
+#if DEBUG
+        // Avoid logging sensitive values (auth codes/verifiers) to disk.
+        print("Google OAuth: exchanging code for token (redirectUri=\(redirectUri))")
+#endif
+
+        guard let tokenURL = URL(string: "https://oauth2.googleapis.com/token") else {
+            DispatchQueue.main.async {
+                self.errorMessage = "Failed to start authentication (invalid token endpoint URL)."
+                self.isAuthenticating = false
+            }
+            return
+        }
+        var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
@@ -321,19 +409,9 @@ final class GoogleCalendarManager: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
                 let errorBody = String(data: data, encoding: .utf8) ?? "No error details"
 
-                // Write error to file
-                if let homeDir = FileManager.default.homeDirectoryForCurrentUser.path as String? {
-                    let logPath = "\(homeDir)/Desktop/calendar-oauth-debug.log"
-                    let errorInfo = """
-
-                    === ERROR Response ===
-                    Status Code: \(httpResponse.statusCode)
-                    Error Body: \(errorBody)
-                    """
-                    if let existing = try? String(contentsOfFile: logPath) {
-                        try? (existing + errorInfo).write(toFile: logPath, atomically: true, encoding: .utf8)
-                    }
-                }
+#if DEBUG
+                print("Google OAuth token exchange failed (\(httpResponse.statusCode)): \(errorBody)")
+#endif
 
                 DispatchQueue.main.async {
                     // Parse error details from Google's response
@@ -343,26 +421,24 @@ final class GoogleCalendarManager: ObservableObject {
                         detailedError = errorDesc
                     }
 
-                    self.errorMessage = "Authentication failed: \(detailedError). Check Desktop/calendar-oauth-debug.log for details."
+                    self.errorMessage = "Authentication failed: \(detailedError)."
                     self.isAuthenticating = false
                 }
                 return
             }
 
-            do {
-                let tokenResponse = try JSONDecoder().decode(GoogleTokenResponse.self, from: data)
-                self.saveTokens(accessToken: tokenResponse.access_token,
-                               refreshToken: tokenResponse.refresh_token,
-                               expiresIn: tokenResponse.expires_in)
+            DispatchQueue.main.async {
+                do {
+                    let tokenResponse = try JSONDecoder().decode(GoogleTokenResponse.self, from: data)
+                    self.saveTokens(accessToken: tokenResponse.access_token,
+                                   refreshToken: tokenResponse.refresh_token,
+                                   expiresIn: tokenResponse.expires_in)
 
-                DispatchQueue.main.async {
                     self.isAuthenticated = true
                     self.isAuthenticating = false
                     self.errorMessage = nil
-                    self.fetchGoogleCalendarEvents()
-                }
-            } catch {
-                DispatchQueue.main.async {
+                    self.refreshEventsIfNeeded(around: Date(), force: true)
+                } catch {
                     self.errorMessage = "Authentication failed: Unable to process Google's response. Please try again."
                     self.isAuthenticating = false
                 }
@@ -371,44 +447,115 @@ final class GoogleCalendarManager: ObservableObject {
     }
 
     func signOut() {
+        performSignOut(reason: nil)
+    }
+
+    private func performSignOut(reason: String?) {
+        keychainAccessBlockedForSession = false
         deleteFromKeychain(key: accessTokenKey)
         deleteFromKeychain(key: refreshTokenKey)
         deleteFromKeychain(key: tokenExpiryKey)
+        pendingCodeVerifier = nil
         isAuthenticated = false
+        if let reason {
+            errorMessage = reason
+        } else {
+            errorMessage = nil
+        }
         googleEvents = []
+        baselineEventsById = [:]
+        visibleEventsById = [:]
+        lastBaselineRange = nil
+        lastVisibleRange = nil
+        inFlightFetches = 0
+        isLoading = false
+        isRefreshingToken = false
     }
 
     // MARK: - Fetch Events
 
     func refreshEventsIfNeeded() {
-        guard isAuthenticated else { return }
-        fetchGoogleCalendarEvents()
+        guard isAuthenticated && isOAuthConfigured else { return }
+        refreshBaselineIfNeeded(range: rangeForVisibleMonth(around: Date()), force: false)
     }
 
-    private func fetchGoogleCalendarEvents() {
+    func refreshEventsIfNeeded(around anchorDate: Date, force: Bool = false) {
+        guard isAuthenticated && isOAuthConfigured else { return }
+
+        let visibleRange = rangeForVisibleMonth(around: anchorDate)
+        let baselineRange = rangeForVisibleMonth(around: Date())
+
+        refreshVisibleIfNeeded(range: visibleRange, force: force)
+
+        // Keep a baseline "now" window so the menu bar dot / next event continues to work while browsing other months.
+        if !(visibleRange.start <= baselineRange.start && visibleRange.end >= baselineRange.end) {
+            refreshBaselineIfNeeded(range: baselineRange, force: force)
+        }
+    }
+
+    private func refreshBaselineIfNeeded(range: DateInterval, force: Bool) {
+        if !force, let last = lastBaselineRange, last.start <= range.start, last.end >= range.end {
+            return
+        }
+
+        lastBaselineRange = range
+        fetchGoogleCalendarEvents(range: range, kind: .baseline)
+    }
+
+    private func refreshVisibleIfNeeded(range: DateInterval, force: Bool) {
+        if !force, let last = lastVisibleRange, last.start <= range.start, last.end >= range.end {
+            return
+        }
+
+        lastVisibleRange = range
+        fetchGoogleCalendarEvents(range: range, kind: .visible)
+    }
+
+    private func rangeForVisibleMonth(around anchorDate: Date) -> DateInterval {
+        let calendar = Calendar.current
+
+        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: anchorDate))
+            ?? calendar.startOfDay(for: anchorDate)
+
+        // Month grid can spill over into adjacent months; fetch a bit extra on both sides.
+        let start = calendar.date(byAdding: .day, value: -14, to: startOfMonth) ?? startOfMonth
+        let endOfMonth = calendar.date(byAdding: .month, value: 1, to: startOfMonth) ?? anchorDate
+        let end = calendar.date(byAdding: .day, value: 14, to: endOfMonth) ?? endOfMonth
+
+        return DateInterval(start: start, end: end)
+    }
+
+    private func fetchGoogleCalendarEvents(range: DateInterval, kind: FetchKind) {
         guard let accessToken = getAccessToken() else {
             DispatchQueue.main.async {
-                self.isAuthenticated = false
-                self.isLoading = false
+                // If we have a refresh token, a refresh may already be in-flight.
+                if self.getRefreshToken(allowUI: false) == nil {
+                    self.isAuthenticated = false
+                } else {
+                    self.isAuthenticated = true
+                }
             }
             return
         }
 
         DispatchQueue.main.async {
-            self.isLoading = true
+            self.inFlightFetches += 1
+            self.isLoading = self.inFlightFetches > 0
             self.errorMessage = nil
         }
 
-        // Get events from now to 30 days in future
-        let now = Date()
-        let calendar = Calendar.current
-        let endDate = calendar.date(byAdding: .day, value: 30, to: now)!
-
         let formatter = ISO8601DateFormatter()
-        let timeMin = formatter.string(from: now)
-        let timeMax = formatter.string(from: endDate)
+        let timeMin = formatter.string(from: range.start)
+        let timeMax = formatter.string(from: range.end)
 
-        var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
+        guard var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events") else {
+            DispatchQueue.main.async {
+                self.errorMessage = "Failed to construct Google Calendar request URL."
+                self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                self.isLoading = self.inFlightFetches > 0
+            }
+            return
+        }
         components.queryItems = [
             URLQueryItem(name: "timeMin", value: timeMin),
             URLQueryItem(name: "timeMax", value: timeMax),
@@ -416,7 +563,15 @@ final class GoogleCalendarManager: ObservableObject {
             URLQueryItem(name: "orderBy", value: "startTime")
         ]
 
-        var request = URLRequest(url: components.url!)
+        guard let requestURL = components.url else {
+            DispatchQueue.main.async {
+                self.errorMessage = "Failed to construct Google Calendar request URL."
+                self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                self.isLoading = self.inFlightFetches > 0
+            }
+            return
+        }
+        var request = URLRequest(url: requestURL)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -425,7 +580,8 @@ final class GoogleCalendarManager: ObservableObject {
             guard let data = data, error == nil else {
                 DispatchQueue.main.async {
                     self.errorMessage = "Unable to fetch events: \(error?.localizedDescription ?? "Network error"). Please check your connection."
-                    self.isLoading = false
+                    self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                    self.isLoading = self.inFlightFetches > 0
                 }
                 return
             }
@@ -434,7 +590,8 @@ final class GoogleCalendarManager: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
                 // Token expired, try to refresh
                 DispatchQueue.main.async {
-                    self.isLoading = false
+                    self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                    self.isLoading = self.inFlightFetches > 0
                 }
                 self.refreshAccessToken()
                 return
@@ -444,50 +601,90 @@ final class GoogleCalendarManager: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
                 DispatchQueue.main.async {
                     self.errorMessage = "Failed to load events from Google Calendar (Error \(httpResponse.statusCode)). Please try again later."
-                    self.isLoading = false
+                    self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                    self.isLoading = self.inFlightFetches > 0
                 }
                 return
             }
 
-            do {
-                let eventsResponse = try JSONDecoder().decode(GoogleCalendarEventsResponse.self, from: data)
-                let events = eventsResponse.items ?? []
+            DispatchQueue.main.async {
+                do {
+                    let eventsResponse = try JSONDecoder().decode(GoogleCalendarEventsResponse.self, from: data)
+                    let events = eventsResponse.items ?? []
 
-                let eventSummaries = events.map { event in
-                    EventSummary(
-                        id: "google-\(event.id)",
-                        title: event.title,
-                        startDate: event.start.asDate,
-                        endDate: event.end.asDate,
-                        isAllDay: event.start.isAllDay,
-                        calendarName: "Google Calendar",
-                        calendarColor: NSColor.systemBlue,
-                        location: event.location
-                    )
-                }
+                    let eventSummaries = events.map { event in
+                        EventSummary(
+                            id: "google-\(event.id)",
+                            title: event.title,
+                            startDate: event.start.asDate,
+                            endDate: event.end.asDate,
+                            isAllDay: event.start.isAllDay,
+                            calendarId: "google-primary",
+                            calendarName: "Google Calendar",
+                            calendarColor: NSColor.systemBlue,
+                            location: event.location,
+                            notes: event.description
+                        )
+                    }
 
-                DispatchQueue.main.async {
-                    self.googleEvents = eventSummaries
-                    self.isLoading = false
+                    let byId = Dictionary(uniqueKeysWithValues: eventSummaries.map { ($0.id, $0) })
+                    switch kind {
+                    case .baseline:
+                        self.baselineEventsById = byId
+                    case .visible:
+                        self.visibleEventsById = byId
+                    }
+
+                    self.publishMergedEvents()
+
+                    self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                    self.isLoading = self.inFlightFetches > 0
                     self.errorMessage = nil
-                }
-            } catch {
-                print("Error decoding Google Calendar events: \(error)")
-                DispatchQueue.main.async {
+                } catch {
+#if DEBUG
+                    print("Error decoding Google Calendar events: \(error)")
+#endif
                     self.errorMessage = "Unable to process calendar data. Please try refreshing."
-                    self.isLoading = false
+                    self.inFlightFetches = max(0, self.inFlightFetches - 1)
+                    self.isLoading = self.inFlightFetches > 0
                 }
             }
         }.resume()
     }
 
+    private func publishMergedEvents() {
+        let merged = baselineEventsById.merging(visibleEventsById) { _, new in new }
+        googleEvents = merged.values.sorted { $0.startDate < $1.startDate }
+    }
+
     private func refreshAccessToken() {
-        guard let refreshToken = getRefreshToken() else {
-            signOut()
+        guard isOAuthConfigured else {
+            DispatchQueue.main.async {
+                self.performSignOut(reason: "Google Calendar is not configured. Add GoogleOAuthConfig.plist and sign in again.")
+            }
             return
         }
 
-        var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
+        guard let refreshToken = getRefreshToken(allowUI: false) else {
+            DispatchQueue.main.async {
+                self.performSignOut(reason: "Google session expired. Please sign in again.")
+            }
+            return
+        }
+
+        guard let tokenURL = URL(string: "https://oauth2.googleapis.com/token") else {
+            DispatchQueue.main.async {
+                self.performSignOut(reason: "Failed to refresh Google token. Please sign in again.")
+            }
+            return
+        }
+
+        if isRefreshingToken {
+            return
+        }
+        isRefreshingToken = true
+
+        var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
@@ -501,22 +698,60 @@ final class GoogleCalendarManager: ObservableObject {
         request.httpBody = body.map { "\($0.key)=\($0.value)" }.joined(separator: "&").data(using: .utf8)
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self, let data = data, error == nil else { return }
+            guard let self = self else { return }
 
-            do {
-                let tokenResponse = try JSONDecoder().decode(GoogleTokenResponse.self, from: data)
-                self.saveTokens(accessToken: tokenResponse.access_token,
-                               refreshToken: nil,
-                               expiresIn: tokenResponse.expires_in)
+            DispatchQueue.main.async {
+                self.isRefreshingToken = false
 
-                // Retry fetching events
-                self.fetchGoogleCalendarEvents()
-            } catch {
-                DispatchQueue.main.async {
-                    self.signOut()
+                if let error {
+                    self.errorMessage = "Unable to refresh Google session: \(error.localizedDescription)."
+                    return
+                }
+
+                guard let data = data else {
+                    self.errorMessage = "Unable to refresh Google session. Please try again."
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                    let errorDetails = self.oauthErrorDescription(from: data) ?? "Error \(httpResponse.statusCode)"
+
+                    if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+                        self.performSignOut(reason: "Google session expired (\(errorDetails)). Please sign in again.")
+                        return
+                    }
+
+                    self.errorMessage = "Unable to refresh Google session (\(errorDetails))."
+                    return
+                }
+
+                do {
+                    let tokenResponse = try JSONDecoder().decode(GoogleTokenResponse.self, from: data)
+                    self.saveTokens(accessToken: tokenResponse.access_token,
+                                    refreshToken: nil,
+                                    expiresIn: tokenResponse.expires_in)
+                    self.isAuthenticated = true
+                    self.errorMessage = nil
+
+                    // Retry fetching events for the last-known ranges (baseline + visible).
+                    let baseline = self.lastBaselineRange ?? self.rangeForVisibleMonth(around: Date())
+                    self.refreshBaselineIfNeeded(range: baseline, force: true)
+
+                    if let visible = self.lastVisibleRange {
+                        self.refreshVisibleIfNeeded(range: visible, force: true)
+                    }
+                } catch {
+                    self.errorMessage = "Unable to refresh Google session. Please sign in again."
                 }
             }
         }.resume()
+    }
+
+    private func oauthErrorDescription(from data: Data) -> String? {
+        if let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            return decoded["error_description"] ?? decoded["error"]
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Keychain Helpers
@@ -532,51 +767,86 @@ final class GoogleCalendarManager: ObservableObject {
     }
 
     private func getAccessToken() -> String? {
-        // Check if token is expired
-        if let expiryStr = getFromKeychain(key: tokenExpiryKey),
-           let expiryInterval = TimeInterval(expiryStr) {
-            let expiryDate = Date(timeIntervalSince1970: expiryInterval)
-            if Date() > expiryDate {
-                // Token expired, try to refresh
+        guard isOAuthConfigured else { return nil }
+
+        // If token is expired, try to refresh (if possible) but don't mark the user signed out.
+        if isAccessTokenExpired(allowUI: false) {
+            if getRefreshToken(allowUI: false) != nil {
                 refreshAccessToken()
-                return nil
             }
+            return nil
         }
 
-        return getFromKeychain(key: accessTokenKey)
+        return getFromKeychain(key: accessTokenKey, allowUI: false)
     }
 
-    private func getRefreshToken() -> String? {
-        return getFromKeychain(key: refreshTokenKey)
+    private func getRefreshToken(allowUI: Bool) -> String? {
+        return getFromKeychain(key: refreshTokenKey, allowUI: allowUI)
+    }
+
+    private func isAccessTokenExpired(allowUI: Bool) -> Bool {
+        guard let expiryStr = getFromKeychain(key: tokenExpiryKey, allowUI: allowUI),
+              let expiryInterval = TimeInterval(expiryStr) else {
+            return false
+        }
+
+        let expiryDate = Date(timeIntervalSince1970: expiryInterval)
+        return Date() > expiryDate
     }
 
     private func saveToKeychain(key: String, value: String) {
-        let data = value.data(using: .utf8)!
-        let query: [String: Any] = [
+        guard let data = value.data(using: .utf8) else { return }
+        let authContext = nonInteractiveAuthContext()
+        let itemQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext,
             kSecValueData as String: data
         ]
-
-        SecItemDelete(query as CFDictionary)
-        SecItemAdd(query as CFDictionary, nil)
-    }
-
-    private func getFromKeychain(key: String) -> String? {
-        let query: [String: Any] = [
+        let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext
+        ]
+
+        let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
+        reportKeychainStatus(deleteStatus, operation: "delete-before-save", key: key)
+
+        let addStatus = SecItemAdd(itemQuery as CFDictionary, nil)
+        reportKeychainStatus(addStatus, operation: "save", key: key)
+    }
+
+    private func getFromKeychain(key: String, allowUI: Bool) -> String? {
+        if !allowUI && keychainAccessBlockedForSession {
+            return nil
+        }
+
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true
         ]
+
+        if !allowUI {
+            query[kSecUseAuthenticationContext as String] = nonInteractiveAuthContext()
+        }
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status == errSecSuccess,
+        guard status == errSecSuccess else {
+            reportKeychainStatus(status, operation: "read", key: key)
+            return nil
+        }
+
+        guard
               let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
+              let value = String(data: data, encoding: .utf8)
+        else {
             return nil
         }
 
@@ -584,13 +854,39 @@ final class GoogleCalendarManager: ObservableObject {
     }
 
     private func deleteFromKeychain(key: String) {
+        let authContext = nonInteractiveAuthContext()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: key
+            kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext
         ]
+        let status = SecItemDelete(query as CFDictionary)
+        reportKeychainStatus(status, operation: "delete", key: key)
+    }
 
-        SecItemDelete(query as CFDictionary)
+    private func nonInteractiveAuthContext() -> LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
+    }
+
+    private func reportKeychainStatus(_ status: OSStatus, operation: String, key: String) {
+        guard status != errSecSuccess && status != errSecItemNotFound else { return }
+
+#if DEBUG
+        print("Google Keychain \(operation) failed for \(key): \(status)")
+#endif
+
+        if status == errSecInteractionNotAllowed || status == errSecAuthFailed || status == errSecUserCanceled {
+            keychainAccessBlockedForSession = true
+            DispatchQueue.main.async {
+                if self.errorMessage == nil || self.errorMessage?.contains("Keychain") == false {
+                    self.errorMessage = "Google Calendar credentials couldn't be accessed from Keychain. Please sign in again from Settings."
+                }
+                self.isAuthenticated = false
+            }
+        }
     }
 
     // MARK: - PKCE Helpers
