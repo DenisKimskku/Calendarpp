@@ -21,5 +21,9 @@
 	<!-- Calendar Access -->
 	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
+
+	<!-- Reminders Access -->
+	<key>com.apple.security.personal-information.reminders</key>
+	<true/>
 </dict>
 </plist>

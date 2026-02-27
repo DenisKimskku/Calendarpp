@@ -3,85 +3,164 @@ import AppKit
 
 struct FooterView: View {
     @EnvironmentObject var keyboardHandler: KeyboardShortcutHandler
+    @Environment(\.openWindow) private var openWindow
 
-    @State private var showingSettings = false
     @State private var showingTemplates = false
     @State private var showingCalendarFilter = false
     @State private var showingQuickAdd = false
+    @State private var showingFeaturesMenu = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Quick Add Event (shown when keyboard shortcut or button pressed)
-            if showingQuickAdd || keyboardHandler.showQuickAdd {
-                QuickAddEventView(isPresented: $showingQuickAdd)
-                    .padding(.horizontal, 4)
-                    .onDisappear {
-                        keyboardHandler.showQuickAdd = false
-                        showingQuickAdd = false
+        VStack(spacing: 10) {
+            Button {
+                showingQuickAdd = true
+            } label: {
+                Label("New Event", systemImage: "plus.circle.fill")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut("n", modifiers: .command)
+
+            HStack(spacing: 8) {
+                Button {
+                    navigateToToday()
+                } label: {
+                    Label("Today", systemImage: "calendar")
+                }
+                .help("Jump to today")
+                .buttonStyle(.plain)
+                .calendarPPZenCard(cornerRadius: 999, strong: false)
+
+                Button {
+                    openSearch()
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.plain)
+                .calendarPPZenCard(cornerRadius: 999, strong: false)
+                .keyboardShortcut("f", modifiers: .command)
+                .help("Open search")
+
+                Button {
+                    openSettingsWindow()
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.plain)
+                .calendarPPZenCard(cornerRadius: 999, strong: false)
+                .keyboardShortcut(",", modifiers: .command)
+
+                Menu {
+                    Button {
+                        openMainWindow()
+                    } label: {
+                        Label("Open Main Window", systemImage: "macwindow")
                     }
 
-                Divider()
-            }
+                    Button {
+                        showingFeaturesMenu = true
+                    } label: {
+                        Label("Features", systemImage: "sparkles")
+                    }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
 
-            HStack(spacing: 12) {
-                Button {
-                    openCalendarApp()
+                    Button {
+                        showingTemplates = true
+                    } label: {
+                        Label("Templates", systemImage: "doc.text")
+                    }
+
+                    Button {
+                        showingCalendarFilter = true
+                    } label: {
+                        Label("Filter Calendars", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+
+                    Divider()
+
+                    Button {
+                        NotificationCenter.default.post(name: .refreshCalendar, object: nil)
+                    } label: {
+                        Label("Refresh Calendars", systemImage: "arrow.clockwise")
+                    }
+
+                    Button {
+                        openCalendarApp()
+                    } label: {
+                        Label("Open Apple Calendar", systemImage: "calendar")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        NSApplication.shared.terminate(nil)
+                    } label: {
+                        Label("Quit calendar++", systemImage: "power")
+                    }
+                    .keyboardShortcut("q", modifiers: .command)
                 } label: {
-                    Label("Open Calendar", systemImage: "calendar")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
-
-                Button {
-                    showingQuickAdd.toggle()
-                } label: {
-                    Label("Quick Add", systemImage: "plus.circle")
-                }
-                .keyboardShortcut("n", modifiers: .command)
-
-            Button {
-                showingTemplates = true
-            } label: {
-                Label("Templates", systemImage: "doc.text")
+                .help("More actions")
             }
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
             .popover(isPresented: $showingTemplates) {
                 EventTemplatesView()
             }
-
-            Button {
-                showingCalendarFilter = true
-            } label: {
-                Label("Filter Calendars", systemImage: "line.3.horizontal.decrease.circle")
+            .sheet(isPresented: $showingQuickAdd) {
+                QuickAddEventView(isPresented: $showingQuickAdd)
+                    .padding(16)
+                    .frame(minWidth: 560, minHeight: 360)
             }
             .popover(isPresented: $showingCalendarFilter) {
                 CalendarFilterView()
             }
-
-            Spacer()
-
-                Button {
-                    showingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .keyboardShortcut(",", modifiers: .command)
-                .popover(isPresented: $showingSettings) {
-                    SettingsPopoverView()
-                        .frame(width: 500, height: 450)
-                }
-
-                Button(role: .destructive) {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Label("Quit", systemImage: "power")
-                }
-                .keyboardShortcut("q", modifiers: .command)
+            .popover(isPresented: $showingFeaturesMenu) {
+                FeaturesMenuView()
             }
-            .labelStyle(.iconOnly)
+            .labelStyle(.titleAndIcon)
             .controlSize(.small)
         }
         .onChange(of: keyboardHandler.showQuickAdd) { show in
             if show {
                 showingQuickAdd = true
+                keyboardHandler.showQuickAdd = false
             }
+        }
+        .onChange(of: showingQuickAdd) { isPresented in
+            if !isPresented {
+                keyboardHandler.showQuickAdd = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showFeaturesMenu)) { _ in
+            showingFeaturesMenu = true
+        }
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openSearch() {
+        openMainWindow()
+        NotificationCenter.default.post(name: .openMainSearch, object: nil)
+    }
+
+    private func navigateToToday() {
+        keyboardHandler.shouldNavigateToToday = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            keyboardHandler.shouldNavigateToToday = false
+        }
+    }
+
+    private func openSettingsWindow() {
+        openWindow(id: "settings")
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
@@ -96,19 +175,4 @@ struct FooterView: View {
         }
     }
 
-    private func openPreferences() {
-        showingSettings = true
-    }
-}
-
-// Settings popover view
-struct SettingsPopoverView: View {
-    @EnvironmentObject var settings: SettingsViewModel
-    @EnvironmentObject var googleCalendar: GoogleCalendarManager
-
-    var body: some View {
-        PreferencesView()
-            .environmentObject(settings)
-            .environmentObject(googleCalendar)
-    }
 }

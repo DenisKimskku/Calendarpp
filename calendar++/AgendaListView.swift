@@ -1,11 +1,17 @@
 import SwiftUI
+import EventKit
 
 struct AgendaListView: View {
     @EnvironmentObject var eventKit: EventKitManager
     @EnvironmentObject var filterManager: CalendarFilterManager
+    @EnvironmentObject var settings: SettingsViewModel
+    @EnvironmentObject var reminders: ReminderManager
+    @Environment(\.calendarPPPresentationContext) private var presentationContext
 
     let date: Date
-    @State private var selectedEvent: EventSummary?
+    let maxHeight: CGFloat?
+    @Binding var inspectedEvent: EventSummary?
+    @State private var popoverEvent: EventSummary?
 
     private var formatter: DateFormatter {
         let df = DateFormatter()
@@ -14,74 +20,128 @@ struct AgendaListView: View {
         return df
     }
 
+    init(date: Date, maxHeight: CGFloat? = 160, inspectedEvent: Binding<EventSummary?> = .constant(nil)) {
+        self.date = date
+        self.maxHeight = maxHeight
+        self._inspectedEvent = inspectedEvent
+    }
+
     var body: some View {
         let allEvents = eventKit.events(on: date)
         let events = filterManager.filterEvents(allEvents)
+        let allDayEvents = events.filter(\.isAllDay)
+        let timedEvents = events
+            .filter { !$0.isAllDay }
+            .sorted { $0.startDate < $1.startDate }
+        let remindersForDay = settings.showRemindersInAgenda ? reminders.reminders(on: date) : []
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Events")
-                    .font(.subheadline.bold())
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                 Spacer()
                 Text(formattedDate(date))
-                    .font(.caption)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 4)
 
-            if events.isEmpty {
-                Text("No events")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(events) { event in
-                            HStack(alignment: .top, spacing: 6) {
-                                Rectangle()
-                                    .fill(Color(event.calendarColor))
-                                    .frame(width: 3)
-                                    .cornerRadius(1.5)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.title)
-                                        .font(.caption)
-                                        .lineLimit(2)
-                                        .fixedSize(horizontal: false, vertical: true)
-
-                                    Text(eventTimeText(for: event))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-
-                                    if let location = event.location, !location.isEmpty {
-                                        Text(location)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if events.isEmpty {
+                        Text("Nothing scheduled")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 10)
+                    } else {
+                        if !allDayEvents.isEmpty {
+                            agendaSectionTitle("All-day")
+                            ForEach(allDayEvents) { event in
+                                let isSelected = inspectedEvent?.id == event.id
+                                eventRow(event: event, isSelected: isSelected)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(6)
-                            .background(.thinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .onTapGesture {
-                                selectedEvent = event
+                        }
+
+                        if !timedEvents.isEmpty {
+                            if !allDayEvents.isEmpty {
+                                Divider()
+                                    .overlay(CalendarPPZenStyle.stroke)
+                                    .padding(.vertical, 4)
                             }
-                            .contextMenu {
-                                EventContextMenu(event: event)
-                            }
-                            .popover(item: $selectedEvent) { event in
-                                EventDetailPopover(event: event)
+                            agendaSectionTitle("Schedule")
+                            ForEach(timedEvents) { event in
+                                let isSelected = inspectedEvent?.id == event.id
+                                eventRow(event: event, isSelected: isSelected)
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
+
+                    if settings.showRemindersInAgenda {
+                        Divider()
+                            .overlay(CalendarPPZenStyle.stroke)
+                            .padding(.vertical, 6)
+
+                        HStack {
+                            Text("Reminders")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Text("\(remindersForDay.count)")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if !isRemindersAuthorized {
+                            Text("Reminders access not granted.")
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                            Button("Request Reminders Access") {
+                                reminders.requestAccessIfNeeded()
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        } else if remindersForDay.isEmpty {
+                            Text("No reminders")
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                        } else {
+                            ForEach(remindersForDay) { reminder in
+                                HStack(spacing: 8) {
+                                    Image(systemName: reminder.isCompleted ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(reminder.isCompleted ? Color.green : Color.secondary)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(reminder.title)
+                                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                                            .lineLimit(2)
+
+                                        HStack(spacing: 8) {
+                                            if let due = reminder.dueDate {
+                                                Text(timeOnly(due))
+                                            }
+                                            Text(reminder.listName)
+                                        }
+                                        .font(.system(size: 10, weight: .regular, design: .rounded))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .calendarPPZenCard(cornerRadius: 10, strong: false)
+                            }
+                        }
+                    }
                 }
-                .frame(maxHeight: 160)
+                .frame(maxWidth: .infinity)
+            }
+            .applyAgendaMaxHeight(maxHeight)
+            .popover(item: $popoverEvent) { event in
+                EventDetailPopover(event: event)
             }
         }
     }
@@ -100,6 +160,102 @@ struct AgendaListView: View {
             let start = formatter.string(from: event.startDate)
             let end = formatter.string(from: event.endDate)
             return "\(start) – \(end)"
+        }
+    }
+
+    private var isRemindersAuthorized: Bool {
+        let status = reminders.authorizationStatus
+        if status == .authorized { return true }
+        if #available(macOS 14.0, *) {
+            if status == .fullAccess { return true }
+        }
+        return false
+    }
+
+    private func timeOnly(_ date: Date) -> String {
+        let df = DateFormatter()
+        df.timeStyle = .short
+        df.dateStyle = .none
+        return df.string(from: date)
+    }
+
+    private func agendaSectionTitle(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.4)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
+    }
+
+    private func eventRow(event: EventSummary, isSelected: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Rectangle()
+                .fill(Color(event.calendarColor))
+                .frame(width: 3)
+                .cornerRadius(1.5)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(eventTimeText(for: event))
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(0.08))
+                        )
+
+                    Text(event.title)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+                }
+
+                if let location = event.location, !location.isEmpty {
+                    Text(location)
+                        .font(.system(size: 10, weight: .regular, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .calendarPPZenCard(cornerRadius: 10, strong: false)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1.8)
+        )
+        .onTapGesture {
+            if presentationContext == .menuBar {
+                popoverEvent = event
+            } else {
+                inspectedEvent = event
+            }
+        }
+        .contextMenu {
+            EventContextMenu(event: event)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func applyAgendaMaxHeight(_ maxHeight: CGFloat?) -> some View {
+        if let maxHeight {
+            self.frame(maxHeight: maxHeight)
+        } else {
+            self
         }
     }
 }
@@ -146,11 +302,20 @@ struct EventContextMenu: View {
 
         Divider()
 
-        // Delete event
-        Button(role: .destructive) {
-            deleteEvent()
-        } label: {
-            Label("Delete Event", systemImage: "trash")
+        // Delete event (local calendars only; Google events are read-only today)
+        if event.id.hasPrefix("google-") {
+            Button {
+                // no-op
+            } label: {
+                Label("Delete Event (Google is read-only)", systemImage: "lock")
+            }
+            .disabled(true)
+        } else {
+            Button(role: .destructive) {
+                deleteEvent()
+            } label: {
+                Label("Delete Event", systemImage: "trash")
+            }
         }
     }
 

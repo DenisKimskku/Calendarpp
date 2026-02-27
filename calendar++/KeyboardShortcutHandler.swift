@@ -35,15 +35,16 @@ class KeyboardShortcutHandler: ObservableObject {
 
             let modifiers = event.modifierFlags
             let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            let hasDisallowedModifiers = !modifiers.intersection([.shift, .option, .control]).isEmpty
 
             // Cmd+N: New event
-            if modifiers.contains(.command) && !modifiers.contains([.shift, .option, .control]) && key == "n" {
+            if modifiers.contains(.command) && !hasDisallowedModifiers && key == "n" {
                 self.showQuickAdd = true
                 return nil // Consume the event
             }
 
             // Cmd+T: Today
-            if modifiers.contains(.command) && !modifiers.contains([.shift, .option, .control]) && key == "t" {
+            if modifiers.contains(.command) && !hasDisallowedModifiers && key == "t" {
                 self.shouldNavigateToToday = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     self.shouldNavigateToToday = false
@@ -52,7 +53,7 @@ class KeyboardShortcutHandler: ObservableObject {
             }
 
             // Cmd+,: Settings
-            if modifiers.contains(.command) && !modifiers.contains([.shift, .option, .control]) && key == "," {
+            if modifiers.contains(.command) && !hasDisallowedModifiers && key == "," {
                 self.shouldOpenSettings = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     self.shouldOpenSettings = false
@@ -61,13 +62,13 @@ class KeyboardShortcutHandler: ObservableObject {
             }
 
             // Cmd+Q: Quit (let system handle it)
-            if modifiers.contains(.command) && !modifiers.contains([.shift, .option, .control]) && key == "q" {
+            if modifiers.contains(.command) && !hasDisallowedModifiers && key == "q" {
                 NSApp.terminate(nil)
                 return nil
             }
 
             // Cmd+R: Refresh
-            if modifiers.contains(.command) && !modifiers.contains([.shift, .option, .control]) && key == "r" {
+            if modifiers.contains(.command) && !hasDisallowedModifiers && key == "r" {
                 NotificationCenter.default.post(name: .refreshCalendar, object: nil)
                 return nil
             }

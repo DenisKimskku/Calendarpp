@@ -6,6 +6,19 @@
 	<key>CFBundleIdentifier</key>
 	<string>den-kim.calendar--</string>
 
+	<!-- URL Scheme Configuration -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>calendarplusplus.url</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>calendarplusplus</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- Calendar & Reminder Permissions -->
 	<key>NSCalendarsUsageDescription</key>
 	<string>calendar++ needs access to your calendars to show and manage your events.</string>
@@ -13,15 +26,9 @@
 	<key>NSRemindersUsageDescription</key>
 	<string>calendar++ needs access to your reminders to show them in your unified timeline.</string>
 	
-	<!-- App Groups for Widget/Extension Support -->
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.yourcompany.calenderplus</string>
-	</array>
-	
 	<!-- Menu Bar Extra Visibility - true means menu bar only, no Dock icon -->
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 	
 	<!-- Application Category -->
 	<key>LSApplicationCategoryType</key>

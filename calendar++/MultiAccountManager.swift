@@ -7,6 +7,8 @@
 
 import Foundation
 import Combine
+import Security
+import LocalAuthentication
 
 struct GoogleAccount: Identifiable, Codable {
     let id: UUID
@@ -34,7 +36,7 @@ class MultiAccountManager: ObservableObject {
     private let selectedAccountKey = "selectedGoogleAccountId"
 
     // Keychain service identifiers
-    private let keychainService = "den-kim.calendar--"
+    private let keychainService = "den-kim.calendar--.multi-account.v2"
 
     init() {
         loadAccounts()
@@ -207,25 +209,37 @@ class MultiAccountManager: ObservableObject {
 
     private func saveStringToKeychain(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }
+        let authContext = nonInteractiveAuthContext()
 
-        let query: [String: Any] = [
+        let itemQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext,
             kSecValueData as String: data
+        ]
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext
         ]
 
         // Delete existing item
-        SecItemDelete(query as CFDictionary)
+        SecItemDelete(deleteQuery as CFDictionary)
 
         // Add new item
-        SecItemAdd(query as CFDictionary, nil)
+        SecItemAdd(itemQuery as CFDictionary, nil)
     }
 
     private func loadStringFromKeychain(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
-            kSecReturnData as String: true
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+            kSecUseAuthenticationContext as String: nonInteractiveAuthContext()
         ]
 
         var result: AnyObject?
@@ -249,11 +263,20 @@ class MultiAccountManager: ObservableObject {
     }
 
     private func deleteStringFromKeychain(key: String) {
+        let authContext = nonInteractiveAuthContext()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecUseAuthenticationContext as String: authContext
         ]
 
         SecItemDelete(query as CFDictionary)
+    }
+
+    private func nonInteractiveAuthContext() -> LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
     }
 }

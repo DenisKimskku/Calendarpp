@@ -150,16 +150,18 @@ brew uninstall --cask calendar-plus-plus
 
 ### "App is damaged" or "Can't verify developer"
 
-Your app needs to be code signed and notarized. To do this:
+If you do not have paid Apple Developer membership, you can still distribute
+via your own tap, but users may need to manually clear quarantine:
 
-1. **Code Sign**: In Xcode, select your team in "Signing & Capabilities"
-2. **Notarize**: After building, submit to Apple:
-   ```bash
-   xcrun notarytool submit build/calendar++-v1.0.0.zip \
-     --apple-id "your@email.com" \
-     --team-id "YOURTEAMID" \
-     --password "app-specific-password"
-   ```
+```bash
+xattr -dr com.apple.quarantine "/Applications/calendar++.app"
+open -a "calendar++"
+```
+
+You can also right-click the app in Applications and choose **Open** once.
+
+If you do have paid membership, use Developer ID signing + notarization for
+best user experience.
 
 ### SHA256 Mismatch Error
 

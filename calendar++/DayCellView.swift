@@ -16,33 +16,42 @@ struct DayCellView: View {
         Calendar.current.isDateInToday(date)
     }
 
-    var body: some View {
-        ZStack {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.accentColor.opacity(0.3))
-            } else if isToday {
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.accentColor, lineWidth: 1.5)
-            }
-
-            VStack(spacing: 2) {
-                Text(dayString)
-                    .font(.caption)
-                    .fontWeight(isToday ? .semibold : .regular)
-                    .foregroundStyle(isInCurrentMonth ? .primary : .secondary)
-
-                if hasEvents {
-                    Circle()
-                        .frame(width: 4, height: 4)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 1)
-                } else {
-                    Spacer().frame(height: 4)
-                }
-            }
-            .padding(4)
+    private var foregroundColor: Color {
+        if isSelected {
+            return .primary
         }
-        .frame(height: 24)
+        if isToday {
+            return Color.accentColor
+        }
+        return isInCurrentMonth ? .primary : .secondary
+    }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(dayString)
+                .font(.system(size: 11, weight: isToday || isSelected ? .semibold : .medium, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(foregroundColor)
+
+            Capsule(style: .continuous)
+                .fill(hasEvents ? Color.accentColor.opacity(isSelected ? 0.95 : 0.75) : Color.clear)
+                .frame(width: hasEvents ? 10 : 8, height: 3)
+        }
+        .padding(.vertical, 3)
+        .frame(height: 28)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(isSelected ? 0.16 : (isToday ? 0.06 : 0.0)))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.45) :
+                    (isToday ? Color.accentColor.opacity(0.85) : CalendarPPZenStyle.stroke),
+                    lineWidth: isToday || isSelected ? 1.4 : 1
+                )
+        )
+        .opacity(isInCurrentMonth ? 1.0 : 0.52)
     }
 }

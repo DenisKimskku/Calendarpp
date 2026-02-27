@@ -2,6 +2,7 @@
 // App Intents for Shortcuts integration
 
 import AppIntents
+import EventKit
 import Foundation
 
 // MARK: - Create Event Intent
@@ -26,8 +27,7 @@ struct CreateEventIntent: AppIntent {
     var isAllDay: Bool
     
     func perform() async throws -> some IntentResult {
-        // Use shared event bridge to create event
-        await EventKitBridge.shared.createEvent(
+        try await EventKitBridge.shared.createEvent(
             title: title,
             startDate: startDate,
             endDate: endDate,
@@ -71,7 +71,7 @@ struct StartDeepWorkIntent: AppIntent {
     var duration: Int
     
     func perform() async throws -> some IntentResult {
-        await EventKitBridge.shared.startDeepWork(duration: duration)
+        try await EventKitBridge.shared.startDeepWork(duration: duration)
         return .result()
     }
 }
@@ -111,8 +111,23 @@ enum CalendarSetEntity: String, AppEnum {
 
 actor EventKitBridge {
     static let shared = EventKitBridge()
+    private let eventStore = EKEventStore()
     
     private init() {}
+
+    enum BridgeError: LocalizedError {
+        case calendarAccessNotGranted
+        case saveFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .calendarAccessNotGranted:
+                return "Calendar access is not granted. Enable it in System Settings and try again."
+            case .saveFailed(let message):
+                return message
+            }
+        }
+    }
     
     func createEvent(
         title: String,
@@ -120,47 +135,109 @@ actor EventKitBridge {
         endDate: Date,
         location: String?,
         isAllDay: Bool
-    ) async {
-        // Post notification to main app to create event
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("CreateEventIntent"),
-                object: nil,
-                userInfo: [
-                    "title": title,
-                    "startDate": startDate,
-                    "endDate": endDate,
-                    "location": location as Any,
-                    "isAllDay": isAllDay
-                ]
-            )
+    ) async throws {
+        guard await ensureEventAccess(forWrite: true) else {
+            throw BridgeError.calendarAccessNotGranted
+        }
+
+        let event = EKEvent(eventStore: eventStore)
+        event.title = title
+        event.isAllDay = isAllDay
+        event.location = location
+
+        let start = startDate
+        var end = endDate
+        if end <= start {
+            end = Calendar.current.date(byAdding: .minute, value: 30, to: start) ?? start.addingTimeInterval(30 * 60)
+        }
+        event.startDate = start
+        event.endDate = end
+        event.calendar = eventStore.defaultCalendarForNewEvents
+
+        do {
+            try eventStore.save(event, span: .thisEvent)
+        } catch {
+            throw BridgeError.saveFailed("Could not save event: \(error.localizedDescription)")
         }
     }
     
     func getNextEvent() async -> (title: String, startDate: Date)? {
-        // In production, use App Groups to share data
-        // For now, return nil - app should listen to notifications
-        return nil
+        guard await ensureEventAccess(forWrite: false) else {
+            return nil
+        }
+
+        let now = Date()
+        let end = Calendar.current.date(byAdding: .day, value: 2, to: now) ?? now.addingTimeInterval(2 * 24 * 3600)
+        let predicate = eventStore.predicateForEvents(withStart: now, end: end, calendars: nil)
+
+        let upcoming = eventStore.events(matching: predicate)
+            .filter { $0.startDate > now }
+            .sorted { $0.startDate < $1.startDate }
+
+        guard let next = upcoming.first else { return nil }
+        return (next.title, next.startDate)
     }
     
-    func startDeepWork(duration: Int) async {
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("StartDeepWorkIntent"),
-                object: nil,
-                userInfo: ["duration": duration]
-            )
+    func startDeepWork(duration: Int) async throws {
+        guard await ensureEventAccess(forWrite: true) else {
+            throw BridgeError.calendarAccessNotGranted
+        }
+
+        let start = Date()
+        let end = start.addingTimeInterval(TimeInterval(max(5, duration) * 60))
+
+        let event = EKEvent(eventStore: eventStore)
+        event.title = "Deep Work"
+        event.startDate = start
+        event.endDate = end
+        event.notes = "Created by calendar++ shortcut."
+        event.calendar = eventStore.defaultCalendarForNewEvents
+
+        do {
+            try eventStore.save(event, span: .thisEvent)
+        } catch {
+            throw BridgeError.saveFailed("Could not start deep work: \(error.localizedDescription)")
         }
     }
     
     func setCalendarFocus(_ focusSet: String) async {
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("SetCalendarFocusIntent"),
-                object: nil,
-                userInfo: ["focusSet": focusSet]
-            )
+        let normalizedFocusSet = CalendarSet(rawValue: focusSet.lowercased())?.rawValue ?? CalendarSet.all.rawValue
+        UserDefaults.standard.set(normalizedFocusSet, forKey: "calendarFocusSet")
+
+        let focusNotification = Notification.Name("calendarPP.setCalendarFocusIntent")
+        let userInfo: [AnyHashable: Any] = ["focusSet": normalizedFocusSet]
+        NotificationCenter.default.post(name: focusNotification, object: nil, userInfo: userInfo)
+        DistributedNotificationCenter.default().postNotificationName(
+            focusNotification,
+            object: nil,
+            userInfo: userInfo,
+            deliverImmediately: true
+        )
+    }
+
+    private func ensureEventAccess(forWrite: Bool) async -> Bool {
+        let status = EKEventStore.authorizationStatus(for: .event)
+
+        if status == .notDetermined {
+            let granted = await withCheckedContinuation { continuation in
+                eventStore.requestAccess(to: .event) { granted, _ in
+                    continuation.resume(returning: granted)
+                }
+            }
+            guard granted else { return false }
+            return await ensureEventAccess(forWrite: forWrite)
         }
+
+        if status == .authorized {
+            return true
+        }
+
+        if #available(macOS 14.0, *) {
+            if status == .fullAccess { return true }
+            if forWrite, status == .writeOnly { return true }
+        }
+
+        return false
     }
 }
 

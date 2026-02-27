@@ -35,7 +35,7 @@ if [[ ! -d "${BUILT_APP}" ]]; then
   exit 1
 fi
 
-if rg -q "(Skipping duplicate build file in Copy Bundle Resources build phase|Copy Bundle Resources.*Info\\.plist|contains this target's Info\\.plist file)" "${BUILD_LOG}"; then
+if rg -q "(Skipping duplicate build file in Copy Bundle Resources build phase|Copy Bundle Resources.*Info\\.plist|contains this target's Info\\.plist( file)?)" "${BUILD_LOG}"; then
   echo "[smoke] Duplicate Info.plist copy warning detected in build log." >&2
   echo "[smoke] Build log: ${BUILD_LOG}" >&2
   exit 1

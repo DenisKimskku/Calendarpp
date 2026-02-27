@@ -1,6 +1,6 @@
 cask "calendar-plus-plus" do
-  version "1.1"
-  sha256 "fdaee07e195eb08820d292b1b65dc84859d6669519eca439b0d4604a3ad1ed93"
+  version "1.1.0"
+  sha256 "d70a432ca3c1564274fa993e0a85c1a8fc3bb6974abb50934a10883d8fef252f"
 
   url "https://deniskim1.com/releases/calendar++-v#{version}.zip"
   name "calendar++"
@@ -35,6 +35,12 @@ cask "calendar-plus-plus" do
 
   caveats <<~EOS
     calendar++ has been installed as a menu bar application.
+
+    This build is distributed without Apple Developer ID notarization.
+    If macOS blocks launch, run:
+      xattr -dr com.apple.quarantine "/Applications/calendar++.app"
+      open -a "calendar++"
+    (or right-click calendar++.app in Applications and choose Open once)
 
     Features:
       • Smart calendar event management

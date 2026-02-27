@@ -15,7 +15,7 @@ struct CalendarFilterView: View {
 
     @Environment(\.dismiss) var dismiss
 
-    private let eventStore = EKEventStore()
+    private let googleCalendarId = "google-primary"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -52,9 +52,9 @@ struct CalendarFilterView: View {
                             CalendarToggleRow(
                                 title: calendar.title,
                                 color: Color(calendar.color),
-                                isVisible: filterManager.isCalendarVisible(calendarId: calendar.title),
+                                isVisible: filterManager.isCalendarVisible(calendarId: calendar.calendarIdentifier, calendarName: calendar.title),
                                 onToggle: {
-                                    filterManager.toggleCalendar(calendarId: calendar.title)
+                                    filterManager.toggleCalendar(calendarId: calendar.calendarIdentifier, calendarName: calendar.title)
                                 }
                             )
                         }
@@ -73,9 +73,9 @@ struct CalendarFilterView: View {
                         CalendarToggleRow(
                             title: "Google Calendar",
                             color: .blue,
-                            isVisible: filterManager.isCalendarVisible(calendarId: "Google Calendar"),
+                            isVisible: filterManager.isCalendarVisible(calendarId: googleCalendarId, calendarName: "Google Calendar"),
                             onToggle: {
-                                filterManager.toggleCalendar(calendarId: "Google Calendar")
+                                filterManager.toggleCalendar(calendarId: googleCalendarId, calendarName: "Google Calendar")
                             }
                         )
                     }
@@ -104,7 +104,7 @@ struct CalendarFilterView: View {
     }
 
     private var availableCalendars: [EKCalendar] {
-        eventStore.calendars(for: .event)
+        eventKit.calendars()
     }
 
     private var totalCalendarCount: Int {
@@ -116,8 +116,10 @@ struct CalendarFilterView: View {
     }
 
     private var visibleCalendarCount: Int {
-        var count = availableCalendars.filter { filterManager.isCalendarVisible(calendarId: $0.title) }.count
-        if googleCalendar.isAuthenticated && filterManager.isCalendarVisible(calendarId: "Google Calendar") {
+        var count = availableCalendars.filter {
+            filterManager.isCalendarVisible(calendarId: $0.calendarIdentifier, calendarName: $0.title)
+        }.count
+        if googleCalendar.isAuthenticated && filterManager.isCalendarVisible(calendarId: googleCalendarId, calendarName: "Google Calendar") {
             count += 1
         }
         return count

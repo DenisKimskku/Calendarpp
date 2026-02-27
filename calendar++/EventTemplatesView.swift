@@ -58,7 +58,7 @@ struct EventTemplatesView: View {
         }
         .padding()
         .frame(width: 400)
-        .sheet(isPresented: $showingAddTemplate) {
+        .calendarppModal(isPresented: $showingAddTemplate) {
             TemplateEditorView(
                 template: nil,
                 onSave: { template in
@@ -67,7 +67,7 @@ struct EventTemplatesView: View {
                 }
             )
         }
-        .sheet(item: $editingTemplate) { template in
+        .calendarppModal(item: $editingTemplate) { template in
             TemplateEditorView(
                 template: template,
                 onSave: { updatedTemplate in

@@ -79,7 +79,9 @@ struct SmartSchedulingView: View {
         }
         
         // Filter by enabled calendars
-        allEvents = allEvents.filter { settings.isCalendarEnabled($0.calendarName) }
+        allEvents = allEvents.filter { event in
+            settings.isCalendarEnabled(event.calendarId ?? event.calendarName)
+        }
         
         if showTimeZoneHelper && !selectedTimeZones.isEmpty {
             return SmartSchedulingHelper.suggestMeetingTimes(

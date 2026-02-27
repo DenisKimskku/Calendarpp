@@ -3,6 +3,7 @@ import SwiftUI
 struct QuickAddEventView: View {
     @EnvironmentObject var eventKit: EventKitManager
     @EnvironmentObject var calendarVM: CalendarViewModel
+    @EnvironmentObject var commandsManager: NaturalLanguageCommandsManager
     @Binding var isPresented: Bool
 
     @State private var title: String = ""
@@ -40,8 +41,12 @@ struct QuickAddEventView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     TextField("e.g. Lunch tomorrow at 1pm", text: $title)
                         .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
                         .onChange(of: title) { newValue in
                             parseAndFillFields(newValue)
+                        }
+                        .onSubmit {
+                            submitQuickAddFromKeyboard()
                         }
 
                     Text("Try: \"meeting at 2pm\", \"lunch tomorrow 1-2pm\", \"dentist Friday at 9am\"")
@@ -54,6 +59,10 @@ struct QuickAddEventView: View {
                 HStack(spacing: 6) {
                     TextField("Title (e.g. Lunch)", text: $title)
                         .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            submitQuickAddFromKeyboard()
+                        }
 
                     DatePicker("", selection: $startTime, displayedComponents: .hourAndMinute)
                         .labelsHidden()
@@ -82,11 +91,48 @@ struct QuickAddEventView: View {
 
                 TextField("Location (optional)", text: $location)
                     .textFieldStyle(.roundedBorder)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        submitQuickAddFromKeyboard()
+                    }
             }
 
             // Preview of parsed event (in natural language mode)
             if useNaturalLanguage && !title.isEmpty {
-                if let parsed = parser.parse(title) {
+                if let command = detectedCommand {
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform.and.mic")
+                            .foregroundColor(.blue)
+                            .font(.caption2)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Command detected")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            Text(commandSummary(command))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            submitQuickAddFromKeyboard()
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                                    .scaleEffect(0.5)
+                            } else {
+                                Image(systemName: "play.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSaving)
+                    }
+                    .padding(10)
+                    .calendarPPZenCard(cornerRadius: 10, strong: false)
+                } else if let parsed = parser.parse(title) {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
@@ -131,9 +177,8 @@ struct QuickAddEventView: View {
                         .buttonStyle(.plain)
                         .disabled(isSaving)
                     }
-                    .padding(8)
-                    .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(10)
+                    .calendarPPZenCard(cornerRadius: 10, strong: false)
                 }
             }
 
@@ -168,7 +213,7 @@ struct QuickAddEventView: View {
 
         let end = start.addingTimeInterval(durationMinutes * 60)
 
-        eventKit.createEvent(
+        let result = eventKit.createEventResult(
             title: trimmedTitle,
             startDate: start,
             endDate: end,
@@ -176,13 +221,20 @@ struct QuickAddEventView: View {
             notes: nil,
             calendar: nil
         )
-        isSaving = false
-        title = ""
-        location = ""
 
-        // Dismiss the QuickAdd form
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isPresented = false
+        switch result {
+        case .success:
+            isSaving = false
+            title = ""
+            location = ""
+
+            // Dismiss the QuickAdd form
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isPresented = false
+            }
+        case .failure(let error):
+            isSaving = false
+            errorMessage = error.errorDescription ?? "Could not create event."
         }
     }
 
@@ -192,11 +244,53 @@ struct QuickAddEventView: View {
         // User can toggle to form mode if they want manual control
     }
 
+    private func submitQuickAddFromKeyboard() {
+        guard !isSaving else { return }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+
+        errorMessage = nil
+
+        if useNaturalLanguage {
+            let command = commandsManager.parseCommand(trimmedTitle)
+            if !isUnknown(command) {
+                let result = commandsManager.processCommand(
+                    trimmedTitle,
+                    events: eventKit.events,
+                    eventKitManager: eventKit,
+                    performChanges: true
+                )
+
+                guard result.success else {
+                    errorMessage = result.message
+                    return
+                }
+
+                if shouldDismissAfterExecuting(command) {
+                    clearAndDismiss()
+                } else {
+                    errorMessage = result.message
+                }
+                return
+            }
+
+            guard let parsed = parser.parse(trimmedTitle) else {
+                errorMessage = "Could not parse input. Try adding a time, like \"at 4pm\"."
+                return
+            }
+            createEventFromParsed(parsed)
+            return
+        }
+
+        createEvent()
+    }
+
     private func createEventFromParsed(_ parsed: ParsedEvent) {
         isSaving = true
         errorMessage = nil
 
-        eventKit.createEvent(
+        let result = eventKit.createEventResult(
             title: parsed.title,
             startDate: parsed.startDate,
             endDate: parsed.endDate,
@@ -204,14 +298,66 @@ struct QuickAddEventView: View {
             notes: nil,
             calendar: nil
         )
+        switch result {
+        case .success:
+            clearAndDismiss()
+        case .failure(let error):
+            isSaving = false
+            errorMessage = error.errorDescription ?? "Could not create event."
+        }
+    }
 
+    private var detectedCommand: CalendarCommand? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard useNaturalLanguage, !trimmed.isEmpty else { return nil }
+        let command = commandsManager.parseCommand(trimmed)
+        return isUnknown(command) ? nil : command
+    }
+
+    private func clearAndDismiss() {
         isSaving = false
         title = ""
         location = ""
 
-        // Dismiss the QuickAdd form
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isPresented = false
+        }
+    }
+
+    private func isUnknown(_ command: CalendarCommand) -> Bool {
+        if case .unknown = command {
+            return true
+        }
+        return false
+    }
+
+    private func shouldDismissAfterExecuting(_ command: CalendarCommand) -> Bool {
+        if case .find(_) = command {
+            return false
+        }
+        return true
+    }
+
+    private func commandSummary(_ command: CalendarCommand) -> String {
+        switch command {
+        case .move(let query, _):
+            return "Move \(query)"
+        case .cancel(let query):
+            return "Cancel \(query)"
+        case .reschedule(let query, _):
+            return "Reschedule \(query)"
+        case .find(_):
+            return "Find available time"
+        case .block(let duration, _):
+            return "Block \(duration) minutes"
+        case .shorten(let query, let minutes):
+            return "Shorten \(query) by \(minutes)m"
+        case .extend(let query, let minutes):
+            return "Extend \(query) by \(minutes)m"
+        case .addBuffer(let query, let minutes):
+            return "Add \(minutes)m buffer for \(query)"
+        case .unknown:
+            return "Unknown command"
         }
     }
 

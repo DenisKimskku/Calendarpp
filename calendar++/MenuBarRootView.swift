@@ -5,6 +5,11 @@ struct MenuBarRootView: View {
     @EnvironmentObject var settings: SettingsViewModel
     @EnvironmentObject var calendarVM: CalendarViewModel
     @EnvironmentObject var googleCalendar: GoogleCalendarManager
+    @EnvironmentObject var filterManager: CalendarFilterManager
+    @EnvironmentObject var prepManager: MeetingPrepManager
+    @EnvironmentObject var achievementsManager: ProductivityAchievementsManager
+    @EnvironmentObject var reminders: ReminderManager
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var keyboardHandler = KeyboardShortcutHandler.shared
     @State private var showWelcome = !UserDefaults.standard.bool(forKey: "hasSeenWelcome")
 
@@ -21,15 +26,38 @@ struct MenuBarRootView: View {
                     .environmentObject(keyboardHandler)
             }
             .padding(12)
+
+            if settings.enableMeetingPrep {
+                MeetingPrepOverlay()
+            }
         }
-        .frame(width: 320, height: 400)
+        .frame(width: 336, height: 432)
+        .tint(settings.resolvedTintColor)
+        .accentColor(settings.resolvedTintColor)
         .onAppear {
             eventKit.requestAccessIfNeeded()
-            eventKit.reloadAllEvents()
-            googleCalendar.refreshEventsIfNeeded()
+            eventKit.reloadAllEvents(around: calendarVM.currentMonth)
+            googleCalendar.refreshEventsIfNeeded(around: calendarVM.currentMonth, force: false)
+
+            prepManager.setEnabled(settings.enableMeetingPrep)
+
+            refreshDerivedData()
+            refreshRemindersAccess()
+        }
+        .onChange(of: settings.enableMeetingPrep) { enabled in
+            prepManager.setEnabled(enabled)
         }
         .onChange(of: googleCalendar.googleEvents) { newEvents in
             eventKit.setGoogleEvents(newEvents)
+        }
+        .onChange(of: eventKit.eventsByDay) { _ in
+            refreshDerivedData()
+        }
+        .onChange(of: eventKit.googleEventsByDay) { _ in
+            refreshDerivedData()
+        }
+        .onChange(of: filterManager.hiddenCalendarIds) { _ in
+            refreshDerivedData()
         }
         .onChange(of: keyboardHandler.showQuickAdd) { show in
             if show {
@@ -43,16 +71,42 @@ struct MenuBarRootView: View {
         }
         .onChange(of: keyboardHandler.shouldOpenSettings) { open in
             if open {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                openSettingsWindow()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .refreshCalendar)) { _ in
-            eventKit.reloadAllEvents()
-            googleCalendar.refreshEventsIfNeeded()
+            eventKit.reloadAllEvents(around: calendarVM.currentMonth)
+            googleCalendar.refreshEventsIfNeeded(around: calendarVM.currentMonth, force: true)
         }
-        .sheet(isPresented: $showWelcome) {
+        .onChange(of: settings.showRemindersInAgenda) { _ in
+            refreshRemindersAccess()
+        }
+        .popover(isPresented: $showWelcome) {
             WelcomeView(isPresented: $showWelcome)
                 .environmentObject(eventKit)
+        }
+    }
+
+    private func refreshDerivedData() {
+        let visibleEvents = filterManager.filterEvents(eventKit.events)
+
+        if settings.enableMeetingPrep {
+            prepManager.updateUpcomingMeetings(events: visibleEvents)
+        }
+
+        achievementsManager.refreshComputedProgress(events: visibleEvents)
+    }
+
+    private func refreshRemindersAccess() {
+        guard settings.showRemindersInAgenda else { return }
+        reminders.requestAccessIfNeeded()
+    }
+
+    private func openSettingsWindow() {
+        openWindow(id: "settings")
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 }
@@ -61,25 +115,12 @@ struct MenuBarRootView: View {
 struct VisualEffectBackground: View {
     var body: some View {
         ZStack {
-            // Base layer - thin material for liquid glass effect
+            CalendarPPZenBackground()
+
+            // Keep a touch of glass so it still feels like a menubar popover.
             Rectangle()
                 .fill(.thinMaterial)
-                .opacity(0.95)
-
-            // Add subtle gradient overlay for depth
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0.1),
-                    Color.clear,
-                    Color.black.opacity(0.05)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            // Subtle noise/grain texture for premium feel
-            Rectangle()
-                .fill(.white.opacity(0.02))
+                .opacity(0.28)
         }
         .ignoresSafeArea()
     }
